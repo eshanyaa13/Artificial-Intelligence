@@ -59,17 +59,48 @@ def print_solution(map, bridges):
     for row in solution_map:
         print(''.join(row))
 
-def update_bridge_counts(bridges, island_bridge_counts):
-    for bridge in bridges:
-        if bridge[3] > 0:  # If planks > 0
-            for island in [bridge[0], bridge[1]]:
-                island_bridge_counts[island] += bridge[3]
-
 def is_dead_end(map, island_bridge_counts):
     for island, count in island_bridge_counts.items():
         if count > map[island]:
             return True
     return False
+
+
+def update_bridge_counts(bridges, island_bridge_counts):
+    # Resets island bridge counts for a fresh calculation
+    for island in island_bridge_counts.keys():
+        island_bridge_counts[island] = 0
+    
+    # Recalculate bridge counts based on current bridge placements
+    for (r1, c1), (r2, c2), orientation, planks in bridges:
+        if planks > 0:  # Consider only placed bridges
+            island_bridge_counts[(r1, c1)] += planks
+            island_bridge_counts[(r2, c2)] += planks
+
+def forward_check(map, island_bridge_counts):
+    for island, count in island_bridge_counts.items():
+        if count > map[island]:
+            return False
+    return True
+
+def forward_check_and_arc_consistency(map, bridges, island_bridge_counts):
+    # Iterate over islands in island_bridge_counts
+    for (r, c), current_count in island_bridge_counts.items():
+        required_count = map[r, c]  # Directly access required count from map
+        
+        if current_count > required_count:
+            return False
+        
+        # Estimate potential bridges for the island
+        potential_bridge_options = 0
+        for bridge in bridges:
+            if (r, c) in [bridge[0], bridge[1]] and bridge[3] == 0:
+                potential_bridge_options += 3  # Assume maximum possibility
+        
+        if current_count + potential_bridge_options < required_count:
+            return False
+    
+    return True
 
 def search_for_solution(map, bridges, island_bridge_counts, index=0):
     if index == len(bridges):
@@ -80,28 +111,29 @@ def search_for_solution(map, bridges, island_bridge_counts, index=0):
             return False
 
     (r1, c1), (r2, c2), orientation = bridges[index][:3]
-    for planks in range(4):  # Try 0 to 3 planks
-        # Temporarily update counts to reflect the addition of the current bridge
-        island_bridge_counts[(r1, c1)] += planks
-        island_bridge_counts[(r2, c2)] += planks
+    for planks in range(4):  # Try placing 0 to 3 planks
         bridges[index] = ((r1, c1), (r2, c2), orientation, planks)
+        update_bridge_counts(bridges, island_bridge_counts)
         
-        if not is_dead_end(map, island_bridge_counts) and search_for_solution(map, bridges, island_bridge_counts, index + 1):
-            return True
+        if forward_check_and_arc_consistency(map, bridges, island_bridge_counts):
+            if search_for_solution(map, bridges, island_bridge_counts, index + 1):
+                return True
         
-        # Revert counts if this path is not successful
-        island_bridge_counts[(r1, c1)] -= planks
-        island_bridge_counts[(r2, c2)] -= planks
-    
-    return False
+        # Revert bridge placement if the path does not lead to a solution
+        bridges[index] = ((r1, c1), (r2, c2), orientation, 0)
+
+    return False  # No valid configuration found along this path
 
 def main():
     nrow, ncol, map = scan_map()
-    potential_bridges = identify_potential_bridges(map)
-    modified_bridges = [(bridge[0], bridge[1], bridge[2], 0) for bridge in potential_bridges]  # Initialize with 0 planks
+    potential_bridges, island_degrees = identify_potential_bridges(map)
 
-    # Initialize island_bridge_counts
-    island_bridge_counts = {(r, c): 0 for r in range(map.shape[0]) for c in range(map.shape[1]) if map[r, c] > 0}
+    potential_bridges.sort(key=lambda x: island_degrees[x[0]] + island_degrees[x[1]])
+
+    modified_bridges = [(bridge[0], bridge[1], bridge[2], 0) for bridge in potential_bridges]
+
+    # Initialize island_bridge_counts with 0 for each island
+    island_bridge_counts = {(r, c): 0 for r in range(nrow) for c in range(ncol) if map[r, c] > 0}
 
     if not search_for_solution(map, np.array(modified_bridges, dtype=object), island_bridge_counts):
         print("No solution found.")
