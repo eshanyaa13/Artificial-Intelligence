@@ -38,6 +38,8 @@ def print_solution(map, bridges):
     for r in range(map.shape[0]):
         for c in range(map.shape[1]):
             if map[r, c] > 0:
+                if map[r, c] > 9:
+                    solution_map[r, c] = chr(map[r, c] - 10 + ord('a')) 
                 solution_map[r, c] = str(map[r, c])
 
     # Updated symbol selection for bridge planks
