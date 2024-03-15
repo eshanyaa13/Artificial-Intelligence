@@ -1,0 +1,183 @@
+
+# hashi_solver.py
+import cProfile
+import numpy as np
+import sys
+from scan_print_map import scan_map
+from identify_potential_bridges import identify_potential_bridges
+
+
+
+def is_solution_valid(puzzle_map, bridges):
+   # Initialize a dictionary to count bridges for each island
+   bridge_count = {(r, c): 0 for r in range(puzzle_map.shape[0]) for c in range(puzzle_map.shape[1]) if puzzle_map[r, c] > 0}
+
+
+   # Count bridges based on the solution
+   for (r1, c1), (r2, c2), orientation, planks in bridges:
+       if planks == 0:  # Skip if no bridge is built
+           continue
+       # Increment bridge counts for both islands
+       bridge_count[(r1, c1)] += planks
+       bridge_count[(r2, c2)] += planks
+
+
+       # Check for bridge crossing or incorrect placement
+       if orientation == 'H':
+           for c in range(min(c1, c2) + 1, max(c1, c2)):
+               if puzzle_map[r1, c] != 0 or bridge_count.get((r1, c), 0) > 0:
+                   return False
+       else:  # Vertical bridge
+           for r in range(min(r1, r2) + 1, max(r1, r2)):
+               if puzzle_map[r, c1] != 0 or bridge_count.get((r, c1), 0) > 0:
+                   return False
+
+
+   # Validate bridge count matches island number
+   for (r, c), count in bridge_count.items():
+       if puzzle_map[r, c] != count:
+           return False
+
+
+   return True
+
+
+def print_solution(puzzle_map, bridges):
+   solution_map = np.full(puzzle_map.shape, '.', dtype=str)
+   for r in range(puzzle_map.shape[0]):
+       for c in range(puzzle_map.shape[1]):
+           if puzzle_map[r, c] > 0:
+               if puzzle_map[r, c] > 9:
+                   solution_map[r, c] = chr(puzzle_map[r, c] - 10 + ord('a'))
+               solution_map[r, c] = str(puzzle_map[r, c])
+
+
+   # Updated symbol selection for bridge planks
+   symbols = {
+       'H': {1: '-', 2: '=', 3: 'E'},  # Horizontal bridge symbols
+       'V': {1: '|', 2: '\"', 3: '#'}   # Vertical bridge symbols
+   }
+
+
+   for (r1, c1), (r2, c2), orientation, planks in bridges:
+       if planks > 0:  # Skip if no bridge is built
+           symbol = symbols[orientation][planks]
+           if orientation == 'H':
+               for c in range(c1 + 1, c2):
+                   solution_map[r1, c] = symbol
+           else:  # Vertical bridge
+               for r in range(r1 + 1, r2):
+                   solution_map[r, c1] = symbol
+
+
+   for row in solution_map:
+       print(''.join(row))
+
+
+def is_dead_end(puzzle_map, island_bridge_counts):
+   for island, count in island_bridge_counts.items():
+       if count > puzzle_map[island]:
+           return True
+   return False
+
+
+
+
+def update_bridge_counts(bridge, island_bridge_counts, operation, puzzle_map):
+    (r1, c1), (r2, c2), _, planks = bridge
+
+    # Update the bridge counts based on the operation (addition or subtraction)
+    if operation == 'add':
+        island_bridge_counts[(r1, c1)] += planks
+        island_bridge_counts[(r2, c2)] += planks
+    elif operation == 'remove':
+        island_bridge_counts[(r1, c1)] -= planks
+        island_bridge_counts[(r2, c2)] -= planks
+
+    # Check for immediate violations (pruning)
+    if island_bridge_counts[(r1, c1)] > puzzle_map[r1, c1] or island_bridge_counts[(r2, c2)] > puzzle_map[r2, c2]:
+        return False  # Indicates a violation
+    return True  # No violation found
+
+
+def forward_check(puzzle_map, island_bridge_counts):
+   for island, count in island_bridge_counts.items():
+       if count > puzzle_map[island]:
+           return False
+   return True
+
+
+def forward_check_and_arc_consistency(puzzle_map, bridge, island_bridge_counts):
+   (r1, c1), (r2, c2), _, planks = bridge
+
+
+   # Check for the two islands connected by the bridge
+   for (r, c) in [(r1, c1), (r2, c2)]:
+       current_count = island_bridge_counts[(r, c)]
+       required_count = puzzle_map[r, c]
+
+
+       # Check if the current bridge placement violates the island's requirements
+       if current_count > required_count:
+           return False
+
+
+       # Assuming the potential to connect to other islands with maximum bridges
+       potential_bridge_options = (required_count - current_count) * 3 
+       if current_count + potential_bridge_options < required_count:
+           return False
+
+
+   return True
+
+
+
+def search_for_solution(puzzle_map, bridges, island_bridge_counts, index=0):
+    if index == len(bridges):
+        if is_solution_valid(puzzle_map, bridges):
+            print_solution(puzzle_map, bridges)
+            return True
+        return False
+
+    (r1, c1), (r2, c2), orientation = bridges[index][:3]
+    for planks in range(4):  # Try placing 0 to 3 planks
+        bridges[index] = ((r1, c1), (r2, c2), orientation, planks)
+
+        # Prune search if bridge count update violates constraints
+        if not update_bridge_counts(bridges[index], island_bridge_counts, operation='add', puzzle_map = puzzle_map):
+            update_bridge_counts(bridges[index], island_bridge_counts, operation='remove')  # Rollback changes
+            continue  # Skip to the next iteration
+
+        if forward_check_and_arc_consistency(puzzle_map, bridges[index], island_bridge_counts):
+            if search_for_solution(puzzle_map, bridges, island_bridge_counts, index + 1):
+                return True
+
+        # Rollback the bridge count update if not proceeding to further search
+        update_bridge_counts(bridges[index], island_bridge_counts, operation='remove', puzzle_map = puzzle_map)
+        bridges[index] = ((r1, c1), (r2, c2), orientation, 0)
+
+    return False  # No valid configuration found along this path
+
+
+def main():
+   nrow, ncol, puzzle_map = scan_map()
+   potential_bridges, island_degrees = identify_potential_bridges(puzzle_map)
+
+
+   potential_bridges.sort(key=lambda x: island_degrees[x[0]] + island_degrees[x[1]])
+
+
+   modified_bridges = [(bridge[0], bridge[1], bridge[2], 0) for bridge in potential_bridges]
+
+
+   # Initialize island_bridge_counts with 0 for each island
+   island_bridge_counts = {(r, c): 0 for r in range(nrow) for c in range(ncol) if puzzle_map[r, c] > 0}
+
+
+   if not search_for_solution(puzzle_map, np.array(modified_bridges, dtype=object), island_bridge_counts):
+       print("No solution found.")
+
+
+if __name__ == "__main__":
+   cProfile.run('main()')
+
