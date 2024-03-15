@@ -33,31 +33,34 @@ def is_solution_valid(map, bridges):
 
     return True
 
-def print_solution(map, bridges):
-    solution_map = np.full(map.shape, '.', dtype=str)
-    for r in range(map.shape[0]):
-        for c in range(map.shape[1]):
-            if map[r, c] > 0:
-                if map[r, c] > 9:
-                    solution_map[r, c] = chr(map[r, c] - 10 + ord('a')) 
-                solution_map[r, c] = str(map[r, c])
-
-    # Updated symbol selection for bridge planks
-    symbols = {
-        'H': {1: '-', 2: '=', 3: 'E'},  # Horizontal bridge symbols
-        'V': {1: '|', 2: '\"', 3: '#'}   # Vertical bridge symbols
-    }
-
-    for (r1, c1), (r2, c2), orientation, planks in bridges:
-        if planks > 0:  # Skip if no bridge is built
-            symbol = symbols[orientation][planks]
+def print_solution(puzzle_map, bridges):
+    solution_map = np.full(puzzle_map.shape, '.', dtype=str)
+    for r in range(puzzle_map.shape[0]):
+        for c in range(puzzle_map.shape[1]):
+            if puzzle_map[r, c] > 0:
+                # Check if the island number is greater than 9 and convert accordingly
+                if puzzle_map[r, c] > 9:
+                    # Convert numbers 10, 11, 12, etc., to 'a', 'b', 'c', etc.
+                    solution_map[r, c] = chr(puzzle_map[r, c] - 10 + ord('a'))
+                else:
+                    # For numbers 1-9, simply convert to string
+                    solution_map[r, c] = str(puzzle_map[r, c])
+    
+    # Apply bridges to the solution map
+    for bridge in bridges:
+        (r1, c1), (r2, c2), orientation, planks = bridge
+        if planks > 0:
+            # Choose the symbol based on the number of planks
             if orientation == 'H':
-                for c in range(c1 + 1, c2):
+                symbol = '-' if planks == 1 else '=' if planks == 2 else 'E'
+                for c in range(min(c1, c2) + 1, max(c1, c2)):
                     solution_map[r1, c] = symbol
-            else:  # Vertical bridge
-                for r in range(r1 + 1, r2):
+            else:  # orientation == 'V'
+                symbol = '|' if planks == 1 else '\"' if planks == 2 else '#'
+                for r in range(min(r1, r2) + 1, max(r1, r2)):
                     solution_map[r, c1] = symbol
 
+    # Print the solution map
     for row in solution_map:
         print(''.join(row))
 
